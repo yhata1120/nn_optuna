@@ -1,69 +1,43 @@
-# -*- coding: utf-8 -*-
-import keras
-from keras.models import Sequential
-from keras.layers import Dense, Activation, Dropout
-from keras.utils import np_utils
-import numpy as np
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import scipy.stats
-import optuna
-import configparser
-import pandas as pd
-import logging.config
-import sys
 import os
-import time
+import numpy as np
 
-# 設定ファイル読み込み
-conf_file = 'dnn.conf'
-config = configparser.ConfigParser()
-config.read(conf_file, 'UTF-8')
+import tensorflow as tf
+physical_devices = tf.config.experimental.list_physical_devices('GPU')
+if len(physical_devices) > 0:
+    for k in range(len(physical_devices)):
+        tf.config.experimental.set_memory_growth(physical_devices[k], True)
+        print('memory growth:', tf.config.experimental.get_memory_growth(physical_devices[k]))
+else:
+    print("Not enough GPU hardware devices available")
 
-# ログ設定ファイル読み込み
-logging.config.fileConfig('logging.conf')
-logger = logging.getLogger()
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Dense, Input, Reshape, Dropout, Conv1D, MaxPooling1D, UpSampling1D, BatchNormalization
+from tensorflow.keras.utils import plot_model
+from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.regularizers import l1
+import tensorflow.keras.backend as K
 
-# 目的関数最小値の初期値定義
+import matplotlib.pyplot as plt
+from sklearn.metrics import r2_score
+
 min_vmae = np.inf
 
-
 def main():
-    # 環境設定(ディスプレイの出力先をlocalhostにする)
-    os.environ['DISPLAY'] = ':0'
-
-    # コマンド引数確認
-    if len(sys.argv) < 2:
-        print('使用法: python deep_regression_train.py 保存ファイル名.h5')
-        sys.exit()
     
     # 探索試行回数を設定
-    n_trials = config.getint('Trials','trials')
-
+    n_trials = 10
     # 最適化探索（optunaのstudyオブジェクト定義）
     study = optuna.create_study(sampler=optuna.samplers.TPESampler())
     # optimizeに最適化すべき目的関数（objective）を渡す。これをn_trials回試行する。目的関数の値が最小のものを探索する。
     study.optimize(outer_objective(), n_trials)
     # ここではouter_objective()を実行してobjective()を実行している
     
-    # 最適だった試行回を表示
-    logger.info('best_trial.number: ' + 'trial#' + str(study.best_trial.number))
-    # 目的関数の最適（最小）値を表示
-    logger.info('best_vmae: ' + str(study.best_value))
-
-    # ハイパーパラメータをソートして表示
-    logger.info('--- best hyperparameter ---')
-    sorted_best_params = sorted(study.best_params.items(), key=lambda x : x[0])
-    for i, k in sorted_best_params:
-        logger.info(i + ' : ' + str(k))
-    logger.info('------------')
-
-
 # objective関数を内包する高階関数。objective関数呼び出し前に、種々の事前設定等を行う。
 def outer_objective():
+    
+    savefile = 'best_model'
 
-    X, y, n_features, n_outputs = 
+    X, y, n_features, n_outputs = data_set()
 
     # ハイパーパラメータの調整設定読み込み
     # バッチサイズ設定
@@ -130,6 +104,8 @@ def outer_objective():
     
     return objective
 
+
+
 def create_model(n_features, n_outputs, n_layer, activation, mid_units, dropout_rate, optimizer):
     # ニューラルネットワーク定義
     model = Sequential()
@@ -145,7 +121,6 @@ def create_model(n_features, n_outputs, n_layer, activation, mid_units, dropout_
     model.compile(loss='mean_squared_error', optimizer=optimizer, metrics=['mae'])
     # モデルを返す
     return model
-
 
 def plot_loss(history):
     # 損失関数のグラフの軸ラベルを設定
@@ -167,7 +142,3 @@ def plot_loss(history):
 
     # グラフを保存
     plt.savefig('dnn_reg_train_figure.png')
-
-
-if __name__ == '__main__':
-    main()
