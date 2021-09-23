@@ -37,6 +37,11 @@ def outer_objective():
     
     savefile = 'best_model'
 
+    # X 入力変数
+    # y 目的変数
+    # n_features　説明変数の次元
+    # n_outputs　目的変数の次元
+    # それぞれdata_setで返す
     X, y, n_features, n_outputs = data_set()
 
     # ハイパーパラメータの調整設定読み込み
@@ -118,7 +123,7 @@ def create_model(n_features, n_outputs, n_layer, activation, mid_units, dropout_
     # 出力層を定義（ニューロン数は1個）
     model.add(Dense(units=n_outputs, activation='linear'))
     # 回帰学習モデル作成
-    model.compile(loss='mean_squared_error', optimizer=optimizer, metrics=['mae'])
+    model.compile(loss='mse', optimizer=optimizer)
     # モデルを返す
     return model
 
