@@ -1,3 +1,9 @@
+# ノードの数を2^n
+# lr 1e-4から1e-1
+# x ^2などを回帰してみる
+# k-fold　cross　validation
+
+
 import os
 import numpy as np
 
@@ -46,7 +52,7 @@ def outer_objective():
 
     # ハイパーパラメータの調整設定読み込み
     # バッチサイズ設定
-    n_bs = 1024
+    n_bs = 2**trial.suggest_int("log2_batch_size", 3, 8)
     # エポック数
     nb_epochs = 10000 
     # 収束判定ループ（エポック）回数
@@ -61,13 +67,17 @@ def outer_objective():
     mid_units_range = ('mid_units',10,30,5)
 
     # 試行するドロップアウト率の範囲設定
-    dropout_rate_range = ('dropout_rate',0.3,0.5)
+    dropout_rate_range = ('dropout_rate',0.0,0.5)
 
     # 試行する活性化関数のリスト設定
     activation_list = ('activation',['relu','tanh','sigmoid'])
 
     # 試行する最適化アルゴリズムのリスト設定
     optimizer_list = ('optimizer',['adam'])
+
+    # 試行する学習率の範囲設定
+    lr_range = ("lr", 1e-5, 1e-1)
+
     # 収束判定設定。以下の条件を満たすエポックがpatience回続いたら打切り。
     # val_loss(観測上最小値) - min_delta  < val_loss
     es_cb = keras.callbacks.EarlyStopping(monitor='val_loss', min_delta=val_min_delta, patience=nb_patience, mode='min', restore_best_weights=True)
@@ -89,6 +99,8 @@ def outer_objective():
         activation = trial.suggest_categorical(*activation_list)
         # 最適化アルゴリズムの探索候補設定
         optimizer = trial.suggest_categorical(*optimizer_list)
+        # 学習率の探索候補決定
+        lr = trial.suggest_loguniform(lr_range)
 
         # 学習モデルの構築と学習の開始
         model = create_model(n_features, n_outputs, n_layer, activation, mid_units, dropout_rate, optimizer)
