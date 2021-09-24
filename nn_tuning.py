@@ -61,7 +61,7 @@ def outer_objective():
     mid_units_range = ('mid_units',10,30,5)
 
     # 試行するドロップアウト率の範囲設定
-    dropout_rate_range = ('dropout_rate',0.0,0.1)
+    dropout_rate_range = ('dropout_rate',0.3,0.5)
 
     # 試行する活性化関数のリスト設定
     activation_list = ('activation',['relu','tanh','sigmoid'])
