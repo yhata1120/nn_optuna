@@ -113,17 +113,18 @@ def outer_objective():
 
 def create_model(n_features, n_outputs, n_layer, activation, mid_units, dropout_rate, optimizer):
     # ニューラルネットワーク定義
-    model = Sequential()
-
+    inputs = Input(shape=(n_features,))
+    x = BatchNormalization()(inputs)
     # 中間層数、各ニューロン数、ドロップアウト率の定義
     for i in range(n_layer):
-        model.add(Dense(mid_units, activation=activation, input_shape=(n_features,)))
-        model.add(Dropout(dropout_rate))
+        x = Dense(mid_units, activation=activation, kernel_initializer="he_normal")(x)
+        x = Dropout(rate=dropout_rate)(x)
 
     # 出力層を定義（ニューロン数は1個）
-    model.add(Dense(units=n_outputs, activation='linear'))
+    outputs = Dense(n_outputs, activation='linear')(x)
     # 回帰学習モデル作成
-    model.compile(loss='mse', optimizer=optimizer)
+    model = Model(inputs, outputs) # nn.model
+    model.compile("adam", "mse") # nn.model.compile
     # モデルを返す
     return model
 
