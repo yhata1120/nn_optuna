@@ -70,7 +70,7 @@ def outer_objective():
     optimizer_list = ('optimizer',['adam'])
     # 収束判定設定。以下の条件を満たすエポックがpatience回続いたら打切り。
     # val_loss(観測上最小値) - min_delta  < val_loss
-    es_cb = keras.callbacks.EarlyStopping(monitor='val_loss', min_delta=val_min_delta, patience=nb_patience, verbose=1, mode='min')
+    es_cb = keras.callbacks.EarlyStopping(monitor='val_loss', min_delta=val_min_delta, patience=nb_patience, mode='min', restore_best_weights=True)
 
     print('obj_loop_start')
 
@@ -92,7 +92,7 @@ def outer_objective():
 
         # 学習モデルの構築と学習の開始
         model = create_model(n_features, n_outputs, n_layer, activation, mid_units, dropout_rate, optimizer)
-        history = model.fit(X, y, verbose=0, epochs=nb_epochs, validation_split=0.1, batch_size=n_bs, callbacks=[es_cb])
+        history = model.fit(X, y, verbose=1, epochs=nb_epochs, validation_split=0.1, batch_size=n_bs, shuffle = True, callbacks=[es_cb])
 
         # 最小値探索(各エポックで得られた目的関数のうち最小値を返す)
         vmae = np.amin(history.history['val_mean_absolute_error'])
