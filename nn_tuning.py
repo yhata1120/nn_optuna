@@ -46,11 +46,11 @@ def outer_objective():
 
     # ハイパーパラメータの調整設定読み込み
     # バッチサイズ設定
-    n_bs = 8
+    n_bs = 1024
     # エポック数
-    nb_epochs = 3000 
+    nb_epochs = 10000 
     # 収束判定ループ（エポック）回数
-    nb_patience = 300
+    nb_patience = 500
     # 収束判定用差分パラメータ
     val_min_delta = 1e-5
     
