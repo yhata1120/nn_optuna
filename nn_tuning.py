@@ -73,10 +73,13 @@ def outer_objective():
     activation_list = ('activation',['relu','tanh','sigmoid'])
 
     # 試行する最適化アルゴリズムのリスト設定
-    optimizer_list = ('optimizer',['adam'])
+    optimizer_list = ('optimizer',['adam','sgd'])
 
-    # 試行する学習率の範囲設定
-    lr_range = ("lr", 1e-5, 1e-1)
+    # 試行する学習率の範囲設定(adam)
+    lr_adam_range = ("lr_adam", 1e-4, 1e-1)
+    
+    # 試行する学習率の範囲設定(sgd)
+    lr_sgd_range = 0.01
 
     # 収束判定設定。以下の条件を満たすエポックがpatience回続いたら打切り。
     # val_loss(観測上最小値) - min_delta  < val_loss
@@ -99,9 +102,17 @@ def outer_objective():
         activation = trial.suggest_categorical(*activation_list)
         # 最適化アルゴリズムの探索候補設定
         optimizer = trial.suggest_categorical(*optimizer_list)
-        # 学習率の探索候補決定
-        lr = trial.suggest_loguniform(lr_range)
-
+        # 最適化アルゴリズムの学習率の探索候補決定(adam)
+        lr_adam = trial.suggest_loguniform(*lr_range)
+        # 最適化アルゴリズムの学習率の探索候補決定(sgd)
+        lr_sgd = lr_sgd_range
+        
+        # 最適化アルゴリズム＋学習率の探索候補決定
+        lr_dict = {"adam":lr_adam, "sgd":lr_sgd}
+        lr=lr_dict.get(optimizer)
+        optimizer = optimizer(lr = lr)
+        
+        
         # 学習モデルの構築と学習の開始
         model = create_model(n_features, n_outputs, n_layer, activation, mid_units, dropout_rate, optimizer)
         history = model.fit(X, y, verbose=1, epochs=nb_epochs, validation_split=0.1, batch_size=n_bs, shuffle = True, callbacks=[es_cb])
@@ -128,10 +139,12 @@ def create_model(n_features, n_outputs, n_layer, activation, mid_units, dropout_
     inputs = Input(shape=(n_features,))
     x = BatchNormalization()(inputs)
     # 中間層数、各ニューロン数、ドロップアウト率の定義
-    for i in range(n_layer):
-        x = Dense(mid_units, activation=activation, kernel_initializer="he_normal")(x)
+    kernel_initializer_dict = {"relu": "he_normal"}
+    hidden_layers_list = [Dense(n_node, activation=activation_hidden, kernel_initializer=kernel_initializer_dict.get(activation_hidden, "glorot_normal"), name=f"hidden_{i + 1}") for i in range(n_layer)] #"activation = relu以外の場合はglorot_normalを使う"
+    x = inputs
+    for layer in hidden_layers_list:
+        x = layer(x)
         x = Dropout(rate=dropout_rate)(x)
-
     # 出力層を定義（ニューロン数は1個）
     outputs = Dense(n_outputs, activation='linear')(x)
     # 回帰学習モデル作成
