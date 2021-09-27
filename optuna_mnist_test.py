@@ -16,6 +16,7 @@ import optuna
 import nn
 
 def objective(trial):
+    # create_model始まり
     nn_dict = {
         "n_input": X_trainval.shape[-1],
         "n_output": y_trainval.shape[-1],
@@ -28,6 +29,10 @@ def objective(trial):
         **nn_dict,
         get_config=True
     )
+    # create_modelの終わり
+    # ここではmodel.get_config()を使ってconfig_fileにしている
+    # ここでmodel.fitをして検証データで検証、その平均を検証誤差とする、k分割交差検証(cved_score)
+    # 使うデータはobjectiveの外で定義して良い
     score = nn.kfold_cv(
         model_config,
         X_trainval,
@@ -43,6 +48,7 @@ def objective(trial):
         eval_func=None,
         random_state=0
     )
+    # k分割交差検証でスコアを出す
     return score
 
 #storage = optuna.storages.RDBStorage(

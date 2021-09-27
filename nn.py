@@ -22,12 +22,13 @@ else:
 def make_simple_nn(n_input, n_output, n_layer, n_node, activation_hidden="relu", activation_output="linear", weights=None, get_config=False):
     inputs = Input(n_input, name="input")
     kernel_initializer_dict = {"relu": "he_normal"}
-    hidden_layers_list = [Dense(n_node, activation=activation_hidden, kernel_initializer=kernel_initializer_dict.get(activation_hidden, "glorot_normal"), name=f"hidden_{i + 1}") for i in range(n_layer)]
+    hidden_layers_list = [Dense(n_node, activation=activation_hidden, kernel_initializer=kernel_initializer_dict.get(activation_hidden, "glorot_normal"), name=f"hidden_{i + 1}") for i in range(n_layer)] #"activation = relu以外の場合はglorot_normalを使う"
     x = inputs
     for layer in hidden_layers_list:
         x = layer(x)
     outputs = Dense(n_output, activation=activation_output, name="output")(x)
     model = Model(inputs, outputs)
+    # モデルではなく重みやconfigを保存するかどうかのオプション
     if weights is not None:
         model.load_weights(weights)
     if get_config:
@@ -89,6 +90,7 @@ def make_simple_lstm_dos(n_input, n_output, n_lstm_units, n_layer, n_node, mask_
 def kfold_cv(model_config, X_trainval, y_trainval, optimizer="adam", loss="mse", n_splits=5, batch_size=32, epochs=1000, es_patience=100, save_dir=".", prefix="kfold_cv", callbacks=list(), eval_func=None, random_state=0):
     val_scores = []
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    # 自分の場合はdata_trainvalはndarrayではなくdataframeのまま入れる
     if not os.path.isdir(save_dir):
         os.makedirs(save_dir, exist_ok=True)
     for fold, (train_indices, val_indices) in enumerate(kf.split(X_trainval)):
@@ -140,6 +142,7 @@ def kfold_cv(model_config, X_trainval, y_trainval, optimizer="adam", loss="mse",
         callbacks_default = [rlr, ckp, es]
 
         # Train model
+        # validation_dataというoptionを使っている
         history = model.fit(
             X_train, y_train,
             validation_data=(X_val, y_val),
@@ -152,17 +155,21 @@ def kfold_cv(model_config, X_trainval, y_trainval, optimizer="adam", loss="mse",
         with open(os.path.join(save_dir, f'{prefix}_cv{fold}_history.pickle'), 'wb') as f:
             pickle.dump(history.history, f)
         # Evaluate model by validation data
+        # もし、何かしらの評価関数(eval_func)がなければmodel.evaluateで追加、
+        # 何かしらの評価関数(eval_func)が存在すればそちらで誤差を評価
         if eval_func is None:
             score = model.evaluate(X_val, y_val)
         else:
             y_val_pred = model.predict(X_val)
             score = eval_func(y_val, y_val_pred)
         print(f'fold {fold} score: {score}')
+        # append each fold scores
         val_scores.append(score)
-        # Delete model and clear session
+        # Delete model and clear session # メモリ問題
         del model
         K.clear_session()
     # Get average of validation score
+    # optunaによる実験一回分のスコア
     cv_score = np.mean(val_scores)
     print(f'CV score: {cv_score}')
     return cv_score

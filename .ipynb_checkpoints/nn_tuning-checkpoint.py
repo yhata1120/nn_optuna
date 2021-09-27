@@ -1,3 +1,7 @@
+# x ^2などを回帰してみる
+# k-fold　cross　validation
+
+
 import os
 import numpy as np
 
@@ -20,6 +24,31 @@ import tensorflow.keras.backend as K
 import matplotlib.pyplot as plt
 from sklearn.metrics import r2_score
 
+# load data of gb (今回はx^2を使って実験を行う) 
+def dataset():
+    sample_size = 10000
+    noise_size = 100
+
+    X_all = np.linspace(-100,100,sample_size)
+    y_all = X_all**2 + noise_size*np.random.randn((len(X_all)))
+
+    X_trainval, X_test, y_trainval, y_test = train_test_split(X_all,y_all,test_size=0.2,random_state=0)
+
+    return X_trainval, X_test, y_trainval, y_test
+
+X_trainval, X_test, y_trainval, y_test= dataset()
+
+X_trainval = X_trainval.reshape(X_trainval.shape[0], -1)
+X_test = X_test.reshape(X_test.shape[0], -1)
+y_trainval = y_trainval.reshape(y_trainval.shape[0], -1)
+y_test = y_test.reshape(y_test.shape[0], -1)
+
+# 検証用のデータと訓練用のデータを準備
+n_feature = len(X_trainval.T)
+n_outputs = len(y_trainval.T)
+
+
+
 min_vmae = np.inf
 
 def main():
@@ -36,16 +65,14 @@ def main():
 def outer_objective():
     
     savefile = 'best_model'
-
-    X, y, n_features, n_outputs = data_set()
-
+    
     # ハイパーパラメータの調整設定読み込み
     # バッチサイズ設定
-    n_bs = 8
+    n_bs = 2**trial.suggest_int("log2_batch_size", 5, 10)
     # エポック数
-    nb_epochs = 3000 
+    nb_epochs = 10000 
     # 収束判定ループ（エポック）回数
-    nb_patience = 300
+    nb_patience = 500
     # 収束判定用差分パラメータ
     val_min_delta = 1e-5
     
@@ -53,19 +80,26 @@ def outer_objective():
     n_layer_range = ('n_layer',1,5)
 
     # 試行する中間層のユニット（ニューロン）数の範囲設定
-    mid_units_range = ('mid_units',10,30,5)
+    mid_units_range = 2**trial.suggest_int("log2_n_node", 3, 8)
 
     # 試行するドロップアウト率の範囲設定
-    dropout_rate_range = ('dropout_rate',0.0,0.1)
+    dropout_rate_range = ('dropout_rate',0.0,0.5)
 
     # 試行する活性化関数のリスト設定
     activation_list = ('activation',['relu','tanh','sigmoid'])
 
     # 試行する最適化アルゴリズムのリスト設定
-    optimizer_list = ('optimizer',['adam'])
+    optimizer_list = ('optimizer',['adam','sgd'])
+
+    # 試行する学習率の範囲設定(adam)
+    lr_adam_range = ("lr_adam", 1e-4, 1e-1)
+    
+    # 試行する学習率の範囲設定(sgd)
+    lr_sgd_range = 0.01
+
     # 収束判定設定。以下の条件を満たすエポックがpatience回続いたら打切り。
     # val_loss(観測上最小値) - min_delta  < val_loss
-    es_cb = keras.callbacks.EarlyStopping(monitor='val_loss', min_delta=val_min_delta, patience=nb_patience, verbose=1, mode='min')
+    es_cb = keras.callbacks.EarlyStopping(monitor='val_loss', min_delta=val_min_delta, patience=nb_patience, mode='min', restore_best_weights=True)
 
     print('obj_loop_start')
 
@@ -84,43 +118,66 @@ def outer_objective():
         activation = trial.suggest_categorical(*activation_list)
         # 最適化アルゴリズムの探索候補設定
         optimizer = trial.suggest_categorical(*optimizer_list)
-
+        # 最適化アルゴリズムの学習率の探索候補決定(adam)
+        lr_adam = trial.suggest_loguniform(*lr_range)
+        # 最適化アルゴリズムの学習率の探索候補決定(sgd)
+        lr_sgd = lr_sgd_range
+        
+        # 最適化アルゴリズム＋学習率の探索候補決定
+        lr_dict = {"adam":lr_adam, "sgd":lr_sgd}
+        lr=lr_dict.get(optimizer)
+        optimizer = optimizer(lr = lr)
+        
+        
         # 学習モデルの構築と学習の開始
-        model = create_model(n_features, n_outputs, n_layer, activation, mid_units, dropout_rate, optimizer)
-        history = model.fit(X, y, verbose=0, epochs=nb_epochs, validation_split=0.1, batch_size=n_bs, callbacks=[es_cb])
-
-        # 最小値探索(各エポックで得られた目的関数のうち最小値を返す)
-        vmae = np.amin(history.history['val_mean_absolute_error'])
-
-        # これまでの最小目的関数より小さい場合更新して、最適モデルとして保存
-        if vmae < min_vmae:
-            min_vmae = vmae
-            model.save(savefile)
-
-            # 損失関数の時系列変化をグラフ表示
-            plot_loss(history)
-
-        return vmae
+        # create_modelに入れるものはインプットとアウトプットの"次元"
+        model_config = create_model(n_features, n_outputs, n_layer, activation, mid_units, dropout_rate, optimizer,get_config = True)
+        
+        score = kfold_cv(
+        model_config,
+        X_trainval,
+        y_trainval,
+        optimizer=optimizer,
+        loss='mse',
+        n_splits=5,
+        batch_size=n_bs,
+        epochs = nb_epochs,
+        save_dir="mnist_ffnn_optuna",
+        prefix=f"trial_{trial.number}",
+        es_cb = es_cb,
+        eval_func=None,
+        random_state=0
+        )
+    # k分割交差検証でスコアを出す
+        return score
     
     return objective
 
 
 
-def create_model(n_features, n_outputs, n_layer, activation, mid_units, dropout_rate, optimizer):
+def create_model(n_features, n_outputs, n_layer, activation, mid_units, dropout_rate, weights=None, get_config=False):
     # ニューラルネットワーク定義
-    model = Sequential()
-
+    inputs = Input(shape=(n_features,))
+    x = BatchNormalization()(inputs)
     # 中間層数、各ニューロン数、ドロップアウト率の定義
-    for i in range(n_layer):
-        model.add(Dense(mid_units, activation=activation, input_shape=(n_features,)))
-        model.add(Dropout(dropout_rate))
-
+    kernel_initializer_dict = {"relu": "he_normal"}
+    hidden_layers_list = [Dense(n_node, activation=activation_hidden, kernel_initializer=kernel_initializer_dict.get(activation_hidden, "glorot_normal"), name=f"hidden_{i + 1}") for i in range(n_layer)] #"activation = relu以外の場合はglorot_normalを使う"
+    x = inputs
+    for layer in hidden_layers_list:
+        x = layer(x)
+        x = Dropout(rate=dropout_rate)(x)
     # 出力層を定義（ニューロン数は1個）
-    model.add(Dense(units=n_outputs, activation='linear'))
+    outputs = Dense(n_outputs, activation='linear')(x)
     # 回帰学習モデル作成
-    model.compile(loss='mean_squared_error', optimizer=optimizer, metrics=['mae'])
-    # モデルを返す
-    return model
+    model = Model(inputs, outputs) # nn.model
+    # モデルを返す　
+    # weightか、configの形か、そのままモデルを帰すのか、今回はconfigを通してfileを返す
+    if weights is not None:
+        model.load_weights(weights)
+    if get_config:
+        return model.get_config()
+    else:
+        return model
 
 def plot_loss(history):
     # 損失関数のグラフの軸ラベルを設定
@@ -142,3 +199,68 @@ def plot_loss(history):
 
     # グラフを保存
     plt.savefig('dnn_reg_train_figure.png')
+    
+def kfold_cv(model_config, X_trainval, y_trainval, optimizer=optimizer, loss="mse", n_splits=5, batch_size=n_bs, epochs=nb_epochs, , save_dir=".", prefix="kfold_cv", es_cb = es_cb, eval_func=None, random_state=0):
+    val_scores = []
+    kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    # 自分の場合はdata_trainvalはndarrayではなくdataframeのまま入れる
+    if not os.path.isdir(save_dir):
+        os.makedirs(save_dir, exist_ok=True)
+    for fold, (train_indices, val_indices) in enumerate(kf.split(X_trainval)):
+        # Prepare dataset
+        X_train, X_val = X_trainval[train_indices], X_trainval[val_indices]
+        y_train, y_val = y_trainval[train_indices], y_trainval[val_indices]
+        # Create model from model_config
+        if isinstance(model_config, dict):
+            model = Model.from_config(model_config)
+            model.compile(optimizer=optimizer, loss=loss)
+        elif isinstance(model_config, str):
+            if os.path.isfile(model_config):
+                with open(model_config, "rt") as f:
+                    json_string = f.read()
+            else:
+                json_string = model_config
+            model = model_from_json(json_string)
+            model.compile(optimizer=optimizer, loss=loss)
+        elif callable(model_config):
+            model = model_config()
+        else:
+            raise RuntimeError(f"unknown type of model_config: {type(model_config)}")
+        model._name = f"{prefix}_{model.name}"
+        # Save model architecture
+        if fold == 0:
+            with open(os.path.join(save_dir, f"{prefix}_architecture.json"), 'wt') as f:
+                f.write(model.to_json())
+
+        # Train model
+        # validation_dataというoptionを使っている
+        history = model.fit(
+            X_train, y_train,
+            validation_data=(X_val, y_val),
+            epochs=epochs,
+            batch_size=batch_size,
+            callbacks=[es_cb],
+            verbose=0
+        )
+        # Save learning history
+        with open(os.path.join(save_dir, f'{prefix}_cv{fold}_history.pickle'), 'wb') as f:
+            pickle.dump(history.history, f)
+        # Evaluate model by validation data
+        # もし、何かしらの評価関数(eval_func)がなければmodel.evaluateで追加、
+        # 何かしらの評価関数(eval_func)が存在すればそちらで誤差を評価
+        if eval_func is None:
+            score = model.evaluate(X_val, y_val)
+        else:
+            y_val_pred = model.predict(X_val)
+            score = eval_func(y_val, y_val_pred)
+        print(f'fold {fold} score: {score}')
+        # append each fold scores
+        val_scores.append(score)
+        # Delete model and clear session # メモリ問題
+        del model
+        K.clear_session()
+    # Get average of validation score
+    # optunaによる実験一回分のスコア
+    cv_score = np.mean(val_scores)
+    print(f'CV score: {cv_score}')
+    return cv_score
